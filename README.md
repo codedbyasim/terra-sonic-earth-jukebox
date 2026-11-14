@@ -1,11 +1,6 @@
 # TERRA-SONIC: The NASA Earth Information Jukebox
 
-**2026 NASA Space Apps Challenge — The Earth Information Jukebox**  
-**Team:** TeamX  
-- **Asim Hanif** — Team Leader & Systems Architect
-- **Maira Noor** — Computer Vision & Data Engineer
-- **Malaika Altaf** — Sound Design & Accessibility Lead
-- **Tayyab Ali** — Frontend Engineering & Storyteller
+**2026 NASA Space Apps Challenge — The Earth Information Jukebox**
 
 ---
 
