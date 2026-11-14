@@ -1,0 +1,136 @@
+@import "tailwindcss";
+
+:root {
+  --chassis-well: #07080b;
+  --rack-panel: #0f1116;
+  --switch-cap: #171a22;
+  --display-well: #040507;
+  --hairline: #222631;
+  --hairline-strong: #323846;
+
+  --text-ivory: #ecebe6;
+  --text-steel: #8e939e;
+  --text-engraved: #626875;
+
+  --sig-amber: #e5a93c;
+  --sig-emerald: #2eb872;
+  --sig-ice: #689df6;
+  --sig-vermilion: #e05a47;
+}
+
+.high-contrast {
+  --chassis-well: #000000;
+  --rack-panel: #060606;
+  --switch-cap: #121212;
+  --display-well: #000000;
+  --hairline: #ffd60a;
+  --hairline-strong: #ffffff;
+
+  --text-ivory: #ffffff;
+  --text-steel: #f3f4f6;
+  --text-engraved: #ffd60a;
+
+  --sig-amber: #ffd60a;
+  --sig-emerald: #00ff7f;
+  --sig-ice: #5ce1e6;
+  --sig-vermilion: #ff5555;
+}
+
+body {
+  background-color: var(--chassis-well);
+  color: var(--text-ivory);
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  overflow-x: hidden;
+}
+
+h1,
+h2,
+h3,
+.font-display {
+  font-family: var(--font-display), var(--font-sans), sans-serif;
+}
+
+.font-mono {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.instrument-rack {
+  background-color: var(--rack-panel);
+  border-color: var(--hairline);
+}
+
+.instrument-well {
+  background-color: var(--display-well);
+  border-color: var(--hairline);
+}
+
+.high-contrast * {
+  border-color: var(--hairline) !important;
+}
+
+.high-contrast button:focus-visible,
+.high-contrast a:focus-visible,
+.high-contrast input:focus-visible,
+.high-contrast select:focus-visible,
+.high-contrast [role="grid"]:focus-visible {
+  outline: 3px solid #5ce1e6 !important;
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[role="grid"]:focus-visible {
+  outline: 2px solid var(--sig-amber);
+  outline-offset: 2px;
+}
+
+/* Precision range slider styling matching hardware fader caps */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: var(--display-well);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 1px;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11px;
+  height: 16px;
+  background: var(--text-ivory);
+  border: 1px solid #040507;
+  border-radius: 1px;
+  cursor: pointer;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 11px;
+  height: 16px;
+  background: var(--text-ivory);
+  border: 1px solid #040507;
+  border-radius: 1px;
+  cursor: pointer;
+}
+
+/* Technical thin scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--display-well);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--hairline-strong);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--sig-amber);
+}
