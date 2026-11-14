@@ -2,6 +2,38 @@ import { NextRequest, NextResponse } from "next/server";
 import { NASA_DATASETS } from "@/lib/nasa-datasets";
 import type { SVSApiMetadata } from "@/lib/types";
 
+const NAMED_HTML_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+  ndash: "–",
+  mdash: "—",
+  lsquo: "‘",
+  rsquo: "’",
+  ldquo: "“",
+  rdquo: "”",
+};
+
+function decodeHtmlEntities(input: string): string {
+  return input.replace(
+    /&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z]+);/g,
+    (match, entity: string) => {
+      if (entity.startsWith("#x") || entity.startsWith("#X")) {
+        const code = Number.parseInt(entity.slice(2), 16);
+        return Number.isFinite(code) ? String.fromCodePoint(code) : match;
+      }
+      if (entity.startsWith("#")) {
+        const code = Number.parseInt(entity.slice(1), 10);
+        return Number.isFinite(code) ? String.fromCodePoint(code) : match;
+      }
+      return NAMED_HTML_ENTITIES[entity.toLowerCase()] ?? match;
+    }
+  );
+}
+
 export async function GET(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -51,10 +83,10 @@ export async function GET(
     const metadata: SVSApiMetadata = {
       svsId,
       title: titleMatch
-        ? titleMatch[1].replace(/\s*-\s*NASA.*$/i, "").trim()
+        ? decodeHtmlEntities(titleMatch[1]).replace(/\s*-\s*NASA.*$/i, "").trim()
         : (dataset?.title ?? `NASA SVS #${svsId}`),
       description: descMatch
-        ? descMatch[1].replace(/&#x27;/g, "'").trim()
+        ? decodeHtmlEntities(descMatch[1]).trim()
         : (dataset?.scienceSummary ?? ""),
       releaseDate: dataset?.timeframe ?? "NASA SVS Official Archive",
       previewImageUrl: mediaImages[0] ?? dataset?.frames[0]?.remoteUrl ?? null,

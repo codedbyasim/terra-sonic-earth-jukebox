@@ -1,6 +1,191 @@
 import { TEAMX_INFO } from "./nasa-datasets";
 import type { CVFrameMetrics, NASADataset, ScaleType, StemId, StemsMap } from "./types";
 
+interface DatasetSynthProfile {
+  baseMidi: number;
+  leadWaveform: OscillatorType;
+  leadGainScale: number;
+  padWaveforms: [OscillatorType, OscillatorType, OscillatorType];
+  padFilterBaseHz: number;
+  padFilterRangeHz: number;
+  padFilterQ: number;
+  textureFilterType: BiquadFilterType;
+  textureBaseHz: number;
+  pulseWaveform: OscillatorType;
+  pulseAttack: number;
+  pulseDecay: number;
+  sparkOctaveOffset: number;
+}
+
+const DEFAULT_SYNTH_PROFILE: DatasetSynthProfile = {
+  baseMidi: 55,
+  leadWaveform: "triangle",
+  leadGainScale: 1.0,
+  padWaveforms: ["sine", "sawtooth", "sine"],
+  padFilterBaseHz: 320,
+  padFilterRangeHz: 1800,
+  padFilterQ: 1.4,
+  textureFilterType: "bandpass",
+  textureBaseHz: 420,
+  pulseWaveform: "sine",
+  pulseAttack: 0.015,
+  pulseDecay: 0.16,
+  sparkOctaveOffset: 24,
+};
+
+const DATASET_SYNTH_PROFILES: Record<string, DatasetSynthProfile> = {
+  "night-lights": {
+    baseMidi: 60,
+    leadWaveform: "triangle",
+    leadGainScale: 0.95,
+    padWaveforms: ["sine", "triangle", "sine"],
+    padFilterBaseHz: 520,
+    padFilterRangeHz: 2100,
+    padFilterQ: 1.2,
+    textureFilterType: "highpass",
+    textureBaseHz: 950,
+    pulseWaveform: "sine",
+    pulseAttack: 0.008,
+    pulseDecay: 0.22,
+    sparkOctaveOffset: 24,
+  },
+  "sea-currents-temp": {
+    baseMidi: 48,
+    leadWaveform: "sine",
+    leadGainScale: 1.0,
+    padWaveforms: ["sine", "sawtooth", "triangle"],
+    padFilterBaseHz: 240,
+    padFilterRangeHz: 1450,
+    padFilterQ: 2.2,
+    textureFilterType: "lowpass",
+    textureBaseHz: 320,
+    pulseWaveform: "sine",
+    pulseAttack: 0.03,
+    pulseDecay: 0.28,
+    sparkOctaveOffset: 12,
+  },
+  "geos-aerosols": {
+    baseMidi: 55,
+    leadWaveform: "triangle",
+    leadGainScale: 0.95,
+    padWaveforms: ["triangle", "sawtooth", "sine"],
+    padFilterBaseHz: 420,
+    padFilterRangeHz: 1850,
+    padFilterQ: 2.8,
+    textureFilterType: "bandpass",
+    textureBaseHz: 620,
+    pulseWaveform: "triangle",
+    pulseAttack: 0.01,
+    pulseDecay: 0.14,
+    sparkOctaveOffset: 24,
+  },
+  "air-quality": {
+    baseMidi: 54,
+    leadWaveform: "sawtooth",
+    leadGainScale: 0.52,
+    padWaveforms: ["sawtooth", "sine", "triangle"],
+    padFilterBaseHz: 360,
+    padFilterRangeHz: 1700,
+    padFilterQ: 3.1,
+    textureFilterType: "bandpass",
+    textureBaseHz: 540,
+    pulseWaveform: "triangle",
+    pulseAttack: 0.012,
+    pulseDecay: 0.16,
+    sparkOctaveOffset: 19,
+  },
+  "perpetual-ocean": {
+    baseMidi: 52,
+    leadWaveform: "triangle",
+    leadGainScale: 0.95,
+    padWaveforms: ["sine", "triangle", "sawtooth"],
+    padFilterBaseHz: 450,
+    padFilterRangeHz: 2200,
+    padFilterQ: 1.8,
+    textureFilterType: "bandpass",
+    textureBaseHz: 480,
+    pulseWaveform: "triangle",
+    pulseAttack: 0.006,
+    pulseDecay: 0.12,
+    sparkOctaveOffset: 24,
+  },
+  "dyamond-co2": {
+    baseMidi: 50,
+    leadWaveform: "sawtooth",
+    leadGainScale: 0.55,
+    padWaveforms: ["sawtooth", "triangle", "sine"],
+    padFilterBaseHz: 300,
+    padFilterRangeHz: 1650,
+    padFilterQ: 2.5,
+    textureFilterType: "lowpass",
+    textureBaseHz: 440,
+    pulseWaveform: "sine",
+    pulseAttack: 0.018,
+    pulseDecay: 0.2,
+    sparkOctaveOffset: 12,
+  },
+  "iss-lightning": {
+    baseMidi: 60,
+    leadWaveform: "square",
+    leadGainScale: 0.45,
+    padWaveforms: ["sine", "triangle", "sine"],
+    padFilterBaseHz: 480,
+    padFilterRangeHz: 2400,
+    padFilterQ: 1.5,
+    textureFilterType: "highpass",
+    textureBaseHz: 1150,
+    pulseWaveform: "square",
+    pulseAttack: 0.005,
+    pulseDecay: 0.09,
+    sparkOctaveOffset: 24,
+  },
+  "atmospheric-river": {
+    baseMidi: 53,
+    leadWaveform: "sine",
+    leadGainScale: 1.0,
+    padWaveforms: ["sine", "triangle", "sine"],
+    padFilterBaseHz: 380,
+    padFilterRangeHz: 1950,
+    padFilterQ: 1.4,
+    textureFilterType: "bandpass",
+    textureBaseHz: 380,
+    pulseWaveform: "sine",
+    pulseAttack: 0.02,
+    pulseDecay: 0.26,
+    sparkOctaveOffset: 24,
+  },
+  "gedi-forest": {
+    baseMidi: 52,
+    leadWaveform: "triangle",
+    leadGainScale: 0.95,
+    padWaveforms: ["sine", "triangle", "triangle"],
+    padFilterBaseHz: 420,
+    padFilterRangeHz: 1550,
+    padFilterQ: 1.3,
+    textureFilterType: "lowpass",
+    textureBaseHz: 520,
+    pulseWaveform: "triangle",
+    pulseAttack: 0.012,
+    pulseDecay: 0.22,
+    sparkOctaveOffset: 12,
+  },
+  "caldwell-73": {
+    baseMidi: 57,
+    leadWaveform: "sine",
+    leadGainScale: 1.0,
+    padWaveforms: ["sine", "sine", "sine"],
+    padFilterBaseHz: 600,
+    padFilterRangeHz: 1800,
+    padFilterQ: 1.0,
+    textureFilterType: "bandpass",
+    textureBaseHz: 700,
+    pulseWaveform: "sine",
+    pulseAttack: 0.01,
+    pulseDecay: 0.16,
+    sparkOctaveOffset: 24,
+  },
+};
+
 const SCALE_SEMITONES: Record<ScaleType, number[]> = {
   pentatonic: [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24],
   lydian: [0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19],
@@ -79,6 +264,7 @@ export class EarthSoundEngine {
 
   private isInitialized = false;
   private isPlaying = false;
+  private activeProfileId: string | null = null;
   private lastRhythmTime = 0;
   private lastTransientTime = 0;
 
@@ -275,6 +461,28 @@ export class EarthSoundEngine {
     });
   }
 
+  private applyDatasetProfile(datasetId: string): DatasetSynthProfile {
+    const profile = DATASET_SYNTH_PROFILES[datasetId] ?? DEFAULT_SYNTH_PROFILE;
+    if (this.activeProfileId === datasetId || !this.ctx) {
+      return profile;
+    }
+
+    this.activeProfileId = datasetId;
+    if (this.leadOsc) {
+      this.leadOsc.type = profile.leadWaveform;
+    }
+    this.padOscs.forEach((osc, i) => {
+      osc.type = profile.padWaveforms[i] ?? "sine";
+    });
+    if (this.padFilter) {
+      this.padFilter.Q.setTargetAtTime(profile.padFilterQ, this.ctx.currentTime, 0.08);
+    }
+    if (this.textureFilter) {
+      this.textureFilter.type = profile.textureFilterType;
+    }
+    return profile;
+  }
+
   public updateFromMetrics(
     metrics: CVFrameMetrics,
     dataset: NASADataset,
@@ -285,9 +493,10 @@ export class EarthSoundEngine {
 
     const now = this.ctx.currentTime;
     const intervals = SCALE_SEMITONES[scale];
-    const baseMidi = dataset.id === "sea-currents-temp" ? 48 : 55;
+    const profile = this.applyDatasetProfile(dataset.id);
+    const baseMidi = profile.baseMidi;
 
-    // 1. Lead Voice (Luminance + Elevation -> Quantized Pitch)
+    // 1. Lead Voice (Luminance + Elevation -> Quantized Pitch & Dataset Timbre)
     const idx = Math.min(
       intervals.length - 1,
       Math.floor((metrics.luminance * 0.55 + metrics.spatialElevation * 0.45) * intervals.length)
@@ -295,13 +504,13 @@ export class EarthSoundEngine {
     const leadFreq = midiToFreq(baseMidi + intervals[idx]);
     this.leadOsc?.frequency.setTargetAtTime(leadFreq, now, 0.045);
     this.leadGain?.gain.setTargetAtTime(
-      0.06 + metrics.luminance * 0.24,
+      (0.06 + metrics.luminance * 0.24) * profile.leadGainScale,
       now,
       0.05
     );
     this.leadPan?.pan.setTargetAtTime(metrics.spatialPan, now, 0.05);
 
-    // 2. Harmonic Pad (Warmth -> Filter Cutoff & Triad Voicing)
+    // 2. Harmonic Pad (Warmth -> Calibrated Filter Cutoff & Triad Voicing)
     const rootMidi = baseMidi - 12 + (intervals[Math.floor(metrics.redMean * 4)] ?? 0);
     const thirdMidi = rootMidi + (intervals[2] ?? 4);
     const fifthMidi = rootMidi + (intervals[4] ?? 7);
@@ -311,7 +520,9 @@ export class EarthSoundEngine {
       this.padOscs[2].frequency.setTargetAtTime(midiToFreq(fifthMidi), now, 0.15);
     }
     const warmthCutoff =
-      320 + metrics.redMean * 1800 + metrics.luminance * 600;
+      profile.padFilterBaseHz +
+      metrics.redMean * profile.padFilterRangeHz +
+      metrics.luminance * 600;
     this.padFilter?.frequency.setTargetAtTime(warmthCutoff, now, 0.1);
     this.padGain?.gain.setTargetAtTime(
       0.1 + metrics.pixelDensity * 0.2,
@@ -321,7 +532,7 @@ export class EarthSoundEngine {
 
     // 3. Atmospheric Noise Texture
     this.textureFilter?.frequency.setTargetAtTime(
-      240 + metrics.blueMean * 950 + metrics.contrastEnergy * 500,
+      profile.textureBaseHz + metrics.blueMean * 950 + metrics.contrastEnergy * 500,
       now,
       0.12
     );
@@ -335,6 +546,10 @@ export class EarthSoundEngine {
     const stepSeconds = Math.max(0.11, 60 / (bpm * (1 + metrics.pixelDensity)));
     if (now - this.lastRhythmTime >= stepSeconds && metrics.pixelDensity > 0.08) {
       this.lastRhythmTime = now;
+      const pulsePeak =
+        profile.pulseWaveform === "square"
+          ? (0.04 + metrics.pixelDensity * 0.07)
+          : (0.06 + metrics.pixelDensity * 0.12);
       this.triggerPulseNote(
         midiToFreq(
           baseMidi +
@@ -342,8 +557,10 @@ export class EarthSoundEngine {
             intervals[Math.floor(metrics.contrastEnergy * (intervals.length - 1))]
         ),
         metrics.spatialPan,
-        0.06 + metrics.pixelDensity * 0.12,
-        dataset.id === "geos-aerosols" ? "triangle" : "sine"
+        pulsePeak,
+        profile.pulseWaveform,
+        profile.pulseDecay,
+        profile.pulseAttack
       );
     }
 
@@ -351,11 +568,14 @@ export class EarthSoundEngine {
     if (metrics.transientSpike > 0.35 && now - this.lastTransientTime > 0.14) {
       this.lastTransientTime = now;
       this.triggerPulseNote(
-        midiToFreq(baseMidi + 24 + (intervals[Math.floor(Math.random() * 5)] ?? 7)),
+        midiToFreq(
+          baseMidi + profile.sparkOctaveOffset + (intervals[Math.floor(Math.random() * 5)] ?? 7)
+        ),
         metrics.spatialPan,
-        0.18,
+        0.16,
         "sine",
-        0.22
+        0.22,
+        0.008
       );
     }
   }
@@ -365,7 +585,8 @@ export class EarthSoundEngine {
     panValue: number,
     peakGain: number,
     type: OscillatorType = "sine",
-    decay = 0.16
+    decay = 0.16,
+    attack = 0.015
   ): void {
     if (!this.ctx || !this.stemGains) return;
     const now = this.ctx.currentTime;
@@ -375,8 +596,8 @@ export class EarthSoundEngine {
 
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.001, now);
-    g.gain.exponentialRampToValueAtTime(Math.max(0.01, peakGain), now + 0.015);
-    g.gain.exponentialRampToValueAtTime(0.0001, now + decay);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.01, peakGain), now + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + attack + decay);
 
     const pan = this.ctx.createStereoPanner();
     pan.pan.setValueAtTime(Math.max(-1, Math.min(1, panValue)), now);
@@ -385,7 +606,7 @@ export class EarthSoundEngine {
     g.connect(pan);
     pan.connect(this.stemGains.rhythm);
     osc.start(now);
-    osc.stop(now + decay + 0.03);
+    osc.stop(now + attack + decay + 0.03);
   }
 
   public triggerTactileProbe(
