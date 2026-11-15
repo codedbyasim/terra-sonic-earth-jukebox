@@ -261,12 +261,15 @@ export class EarthSoundEngine {
 
   private textureGain: GainNode | null = null;
   private textureFilter: BiquadFilterNode | null = null;
+  private texturePan: StereoPannerNode | null = null;
+  private noiseBuffer: AudioBuffer | null = null;
 
   private isInitialized = false;
   private isPlaying = false;
   private activeProfileId: string | null = null;
   private lastRhythmTime = 0;
   private lastTransientTime = 0;
+  private lastPhenomenonTime = 0;
 
   // PCM WAV Recording buffers
   private recordingNode: ScriptProcessorNode | null = null;
@@ -376,6 +379,8 @@ export class EarthSoundEngine {
     for (let i = 0; i < bufferSize; i++) {
       output[i] = Math.random() * 2 - 1;
     }
+    this.noiseBuffer = noiseBuffer;
+
     const noiseSrc = ctx.createBufferSource();
     noiseSrc.buffer = noiseBuffer;
     noiseSrc.loop = true;
@@ -388,13 +393,18 @@ export class EarthSoundEngine {
     const textureGain = ctx.createGain();
     textureGain.gain.value = 0.0;
 
+    const texturePan = ctx.createStereoPanner();
+    texturePan.pan.value = 0;
+
     noiseSrc.connect(textureFilter);
     textureFilter.connect(textureGain);
-    textureGain.connect(textureGainNode);
+    textureGain.connect(texturePan);
+    texturePan.connect(textureGainNode);
     noiseSrc.start();
 
     this.textureFilter = textureFilter;
     this.textureGain = textureGain;
+    this.texturePan = texturePan;
 
     // PCM Recorder Tap
     const recorder = ctx.createScriptProcessor(2048, 2, 2);
@@ -530,7 +540,7 @@ export class EarthSoundEngine {
       0.1
     );
 
-    // 3. Atmospheric Noise Texture
+    // 3. Atmospheric Noise Texture (Full 3D Stereo Panned)
     this.textureFilter?.frequency.setTargetAtTime(
       profile.textureBaseHz + metrics.blueMean * 950 + metrics.contrastEnergy * 500,
       now,
@@ -540,6 +550,11 @@ export class EarthSoundEngine {
       0.02 + metrics.contrastEnergy * 0.11,
       now,
       0.1
+    );
+    this.texturePan?.pan.setTargetAtTime(
+      Math.max(-0.95, Math.min(0.95, metrics.spatialPan)),
+      now,
+      0.08
     );
 
     // 4. Rhythm Stem (Density-Driven Arpeggiated Pulse)
@@ -577,6 +592,150 @@ export class EarthSoundEngine {
         0.22,
         0.008
       );
+    }
+
+    // 6. Phenomenon-Specific Physical Acoustic FX Layer
+    this.triggerPhenomenonLayer(metrics, dataset, intervals, baseMidi, now);
+  }
+
+  private playFilteredNoiseBurst(
+    freqHz: number,
+    q: number,
+    peakGain: number,
+    durationSec: number,
+    panValue: number,
+    destinationBus: AudioNode,
+    filterType: BiquadFilterType = "bandpass"
+  ): void {
+    if (!this.ctx || !this.noiseBuffer) return;
+    const now = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    src.loop = true;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = filterType;
+    filter.frequency.setValueAtTime(freqHz, now);
+    filter.Q.setValueAtTime(q, now);
+
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.008, peakGain), now + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + durationSec);
+
+    const pan = this.ctx.createStereoPanner();
+    pan.pan.setValueAtTime(Math.max(-1, Math.min(1, panValue)), now);
+
+    src.connect(filter);
+    filter.connect(g);
+    g.connect(pan);
+    pan.connect(destinationBus);
+
+    src.start(now, Math.random() * 1.2);
+    src.stop(now + durationSec + 0.02);
+  }
+
+  private triggerPhenomenonLayer(
+    metrics: CVFrameMetrics,
+    dataset: NASADataset,
+    intervals: number[],
+    baseMidi: number,
+    now: number
+  ): void {
+    if (!this.ctx || !this.stemGains) return;
+    const elapsed = now - this.lastPhenomenonTime;
+
+    switch (dataset.id) {
+      case "iss-lightning": {
+        if ((metrics.transientSpike > 0.22 || metrics.luminance > 0.32) && elapsed > 0.16) {
+          this.lastPhenomenonTime = now;
+          // Electric arc crackle + sub-thunder discharge
+          this.playFilteredNoiseBurst(
+            2400 + metrics.luminance * 1800,
+            2.4,
+            0.14,
+            0.085,
+            metrics.spatialPan,
+            this.stemGains.texture,
+            "bandpass"
+          );
+          const subOsc = this.ctx.createOscillator();
+          subOsc.type = "triangle";
+          subOsc.frequency.setValueAtTime(108, now);
+          subOsc.frequency.exponentialRampToValueAtTime(36, now + 0.22);
+          const subGain = this.ctx.createGain();
+          subGain.gain.setValueAtTime(0.001, now);
+          subGain.gain.exponentialRampToValueAtTime(0.16, now + 0.01);
+          subGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
+          const subPan = this.ctx.createStereoPanner();
+          subPan.pan.setValueAtTime(Math.max(-1, Math.min(1, metrics.spatialPan)), now);
+          subOsc.connect(subGain);
+          subGain.connect(subPan);
+          subPan.connect(this.stemGains.rhythm);
+          subOsc.start(now);
+          subOsc.stop(now + 0.26);
+        }
+        break;
+      }
+
+      case "air-quality":
+      case "geos-aerosols":
+      case "dyamond-co2": {
+        // Particulate / Geiger-counter micro-ticks proportional to concentration
+        const interval = Math.max(0.065, 0.27 - metrics.pixelDensity * 0.18);
+        if ((metrics.pixelDensity > 0.14 || metrics.redMean > 0.28) && elapsed >= interval) {
+          this.lastPhenomenonTime = now;
+          this.playFilteredNoiseBurst(
+            1850 + metrics.redMean * 1450,
+            7.2,
+            0.09,
+            0.028,
+            metrics.spatialPan,
+            this.stemGains.rhythm,
+            "bandpass"
+          );
+        }
+        break;
+      }
+
+      case "sea-currents-temp":
+      case "perpetual-ocean":
+      case "atmospheric-river": {
+        if (metrics.contrastEnergy > 0.16 && elapsed > 0.38) {
+          this.lastPhenomenonTime = now;
+          // Hydrophone wave wash swell
+          this.playFilteredNoiseBurst(
+            420 + metrics.blueMean * 640,
+            1.6,
+            0.075,
+            0.34,
+            metrics.spatialPan,
+            this.stemGains.texture,
+            "bandpass"
+          );
+        }
+        break;
+      }
+
+      case "gedi-forest": {
+        const isVegetated = metrics.greenMean > metrics.blueMean * 0.92;
+        if (isVegetated && metrics.luminance > 0.16 && elapsed > 0.24) {
+          this.lastPhenomenonTime = now;
+          const canopyStep = intervals[Math.floor(metrics.greenMean * (intervals.length - 1))] ?? 4;
+          this.triggerPulseNote(
+            midiToFreq(baseMidi + 12 + canopyStep),
+            metrics.spatialPan,
+            0.085,
+            "sine",
+            0.22,
+            0.004
+          );
+        }
+        break;
+      }
+
+      default:
+        break;
     }
   }
 

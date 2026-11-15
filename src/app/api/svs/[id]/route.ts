@@ -83,10 +83,13 @@ export async function GET(
     const metadata: SVSApiMetadata = {
       svsId,
       title: titleMatch
-        ? decodeHtmlEntities(titleMatch[1]).replace(/\s*-\s*NASA.*$/i, "").trim()
+        ? decodeHtmlEntities(titleMatch[1])
+            .replace(/^NASA Scientific Visualization Studio\s*\|\s*/i, "")
+            .replace(/\s*-\s*NASA.*$/i, "")
+            .trim()
         : (dataset?.title ?? `NASA SVS #${svsId}`),
       description: descMatch
-        ? decodeHtmlEntities(descMatch[1]).trim()
+        ? decodeHtmlEntities(descMatch[1]).split("||")[0].trim()
         : (dataset?.scienceSummary ?? ""),
       releaseDate: dataset?.timeframe ?? "NASA SVS Official Archive",
       previewImageUrl: mediaImages[0] ?? dataset?.frames[0]?.remoteUrl ?? null,

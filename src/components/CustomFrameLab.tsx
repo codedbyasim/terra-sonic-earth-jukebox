@@ -7,6 +7,7 @@ import {
   drawScanlineOverlay,
   loadImageAsset,
   renderImageToCanvas,
+  renderVideoToCanvas,
 } from "@/lib/frame-renderer";
 import { NASA_DATASETS } from "@/lib/nasa-datasets";
 import type { EarthSoundEngine } from "@/lib/sound-engine";
@@ -31,6 +32,8 @@ export default function CustomFrameLab({
 }: CustomFrameLabProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const activeImgRef = useRef<HTMLImageElement | null>(null);
+  const activeVideoRef = useRef<HTMLVideoElement | null>(null);
+  const videoObjectUrlRef = useRef<string | null>(null);
   const scanRef = useRef<number>(0.5);
   const dirtyRef = useRef<boolean>(true);
 
@@ -83,9 +86,22 @@ export default function CustomFrameLab({
       ? Boolean(activeArchiveItem.invertLuminance)
       : false;
 
+  const clearActiveVideo = () => {
+    if (activeVideoRef.current) {
+      activeVideoRef.current.pause();
+      activeVideoRef.current.src = "";
+      activeVideoRef.current = null;
+    }
+    if (videoObjectUrlRef.current) {
+      URL.revokeObjectURL(videoObjectUrlRef.current);
+      videoObjectUrlRef.current = null;
+    }
+  };
+
   useEffect(() => {
     if (sourceMode !== "archive-frame") return;
     let cancelled = false;
+    clearActiveVideo();
     loadImageAsset(activeArchiveItem.localSrc)
       .then((img) => {
         if (!cancelled) {
@@ -124,11 +140,19 @@ export default function CustomFrameLab({
             scanRef.current = (scanRef.current + 0.0045) % 1;
           }
 
+          const vid = activeVideoRef.current;
           const img = activeImgRef.current;
-          renderImageToCanvas(ctx, canvas.width, canvas.height, img, 0, false);
+          const hasMedia =
+            Boolean(vid && vid.readyState >= 2) || Boolean(img);
 
-          if (img && (labPlaying || dirtyRef.current)) {
-            const effectiveMode = scanMode === "probe" ? "horizontal" : scanMode;
+          if (vid && vid.readyState >= 2) {
+            renderVideoToCanvas(ctx, canvas.width, canvas.height, vid);
+          } else {
+            renderImageToCanvas(ctx, canvas.width, canvas.height, img, 0, false);
+          }
+
+          const effectiveMode = scanMode === "probe" ? "horizontal" : scanMode;
+          if (hasMedia && (labPlaying || dirtyRef.current)) {
             const metrics = analyzeCanvasFrame(
               ctx,
               canvas.width,
@@ -162,13 +186,13 @@ export default function CustomFrameLab({
               dirtyRef.current = false;
               setLabMetrics(metrics);
             }
-          } else if (img) {
+          } else if (hasMedia) {
             drawScanlineOverlay(
               ctx,
               canvas.width,
               canvas.height,
               scanRef.current,
-              scanMode === "probe" ? "horizontal" : scanMode,
+              effectiveMode,
               "#E5A93C",
               { x: 0.5, y: 0.5 }
             );
@@ -192,6 +216,7 @@ export default function CustomFrameLab({
 
   useEffect(() => {
     return () => {
+      clearActiveVideo();
       soundEngine?.stopPlayback();
     };
   }, [soundEngine]);
@@ -200,9 +225,13 @@ export default function CustomFrameLab({
     if (!soundEngine) return;
     if (labPlaying) {
       soundEngine.stopPlayback();
+      activeVideoRef.current?.pause();
       setLabPlaying(false);
     } else {
       soundEngine.startPlayback();
+      if (activeVideoRef.current) {
+        void activeVideoRef.current.play().catch(() => undefined);
+      }
       setLabPlaying(true);
     }
   };
@@ -210,6 +239,36 @@ export default function CustomFrameLab({
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (file.type.startsWith("video/")) {
+      clearActiveVideo();
+      activeImgRef.current = null;
+      const objUrl = URL.createObjectURL(file);
+      videoObjectUrlRef.current = objUrl;
+
+      const video = document.createElement("video");
+      video.src = objUrl;
+      video.muted = true;
+      video.loop = true;
+      video.playsInline = true;
+      video.onloadeddata = () => {
+        activeVideoRef.current = video;
+        dirtyRef.current = true;
+        setSourceMode("local-upload");
+        setActiveLabel(`LOCAL VIDEO // ${file.name}`);
+        setStatusMessage("LIVE VIDEO STREAM INGESTED — PRESS ▶ SONIFY FRAME TO SONIFY MOTION.");
+        if (labPlaying) {
+          void video.play().catch(() => undefined);
+        }
+      };
+      video.onerror = () => {
+        clearActiveVideo();
+        setStatusMessage("ERR // UNABLE TO DECODE VIDEO STREAM.");
+      };
+      return;
+    }
+
+    clearActiveVideo();
     const reader = new FileReader();
     reader.onload = () => {
       const img = new Image();
@@ -239,6 +298,7 @@ export default function CustomFrameLab({
 
     setStatusMessage("FETCHING LIVE SVS ASSET VIA CORS PROXY...");
     try {
+      clearActiveVideo();
       const proxySrc = `/api/svs/proxy?url=${encodeURIComponent(trimmed)}`;
       const img = await loadImageAsset(proxySrc);
       activeImgRef.current = img;
@@ -250,6 +310,17 @@ export default function CustomFrameLab({
       setStatusMessage(
         "ERR // UNABLE TO FETCH SVS ASSET. CHECK DIRECT .JPG OR .PNG PATH UNDER /vis/."
       );
+    }
+  };
+
+  const handleCanvasPointer = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const nx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const ny = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    scanRef.current = scanMode === "vertical" ? ny : nx;
+    dirtyRef.current = true;
+    if (e.type === "pointerdown" && soundEngine) {
+      soundEngine.triggerTactileProbe(nx, ny, labMetrics?.luminance ?? 0.4, scale, 0.7);
     }
   };
 
@@ -265,10 +336,10 @@ export default function CustomFrameLab({
             CUSTOM INGESTION CONSOLE
           </div>
           <h2 className="mt-1 font-display text-base font-bold text-[var(--text-ivory)]">
-            Local Upload &amp; Live NASA SVS Fetch
+            Local Media &amp; Live NASA SVS Fetch
           </h2>
           <p className="mt-1 font-mono text-[11px] leading-relaxed text-[var(--text-steel)]">
-            Feed any image file, live <span className="text-[var(--sig-ice)]">svs.gsfc.nasa.gov/vis/</span> frame, or select from all {archiveFrames.length} bundled SVS assets.
+            Feed any image or video file (<span className="text-[var(--sig-amber)]">.MP4 / .WEBM / .PNG / .JPG</span>), live <span className="text-[var(--sig-ice)]">svs.gsfc.nasa.gov/vis/</span> frame, or select from all {archiveFrames.length} bundled SVS assets.
           </p>
         </div>
 
@@ -279,15 +350,15 @@ export default function CustomFrameLab({
             className="flex cursor-pointer flex-col items-center justify-center gap-1.5 border border-dashed border-[var(--hairline-strong)] bg-[var(--display-well)] p-3.5 text-center transition-colors hover:border-[var(--sig-amber)]"
           >
             <span className="font-mono text-xs font-bold uppercase tracking-[0.08em] text-[var(--text-ivory)]">
-              [+] UPLOAD LOCAL IMAGE FRAME
+              [+] UPLOAD LOCAL IMAGE OR VIDEO
             </span>
             <span className="font-mono text-[10px] text-[var(--text-steel)]">
-              PNG / JPG / WEBP · DIRECT CLIENT CANVAS DECODE
+              PNG / JPG / WEBP / MP4 / WEBM · DIRECT CANVAS DECODE
             </span>
             <input
               id="custom-frame-upload"
               type="file"
-              accept="image/png,image/jpeg,image/webp"
+              accept="image/png,image/jpeg,image/webp,video/mp4,video/webm"
               onChange={handleFileUpload}
               className="sr-only"
             />
@@ -337,7 +408,18 @@ export default function CustomFrameLab({
             {archiveFrames.map((item) => {
               const active =
                 sourceMode === "archive-frame" && selectedArchiveId === item.id;
-              return (
+              const handleCanvasPointer = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const nx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const ny = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    scanRef.current = scanMode === "vertical" ? ny : nx;
+    dirtyRef.current = true;
+    if (e.type === "pointerdown" && soundEngine) {
+      soundEngine.triggerTactileProbe(nx, ny, labMetrics?.luminance ?? 0.4, scale, 0.7);
+    }
+  };
+
+  return (
                 <button
                   key={item.id}
                   type="button"
@@ -410,8 +492,12 @@ export default function CustomFrameLab({
               ref={canvasRef}
               width={720}
               height={405}
-              aria-label="Custom NASA media optical sonification canvas"
-              className="aspect-video w-full"
+              onPointerDown={handleCanvasPointer}
+              onPointerMove={(e) => {
+                if (e.buttons === 1) handleCanvasPointer(e);
+              }}
+              aria-label="Custom NASA media optical sonification canvas. Click or drag to scrub scanline."
+              className="aspect-video w-full cursor-crosshair touch-none"
             />
           </div>
         </div>

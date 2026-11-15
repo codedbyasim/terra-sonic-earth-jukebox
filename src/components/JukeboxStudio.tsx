@@ -7,12 +7,14 @@ import {
   drawScanlineOverlay,
   getCachedImage,
   loadImageAsset,
+  renderCompositeFrameToCanvas,
   renderImageToCanvas,
 } from "@/lib/frame-renderer";
 import { NASA_DATASETS } from "@/lib/nasa-datasets";
 import type { EarthSoundEngine } from "@/lib/sound-engine";
 import type {
   CVFrameMetrics,
+  DeltaMetrics,
   NASADataset,
   ScaleType,
   ScanMode,
@@ -40,6 +42,7 @@ interface JukeboxStudioProps {
   soundEngine: EarthSoundEngine | null;
   latestMetrics: CVFrameMetrics;
   onMetricsUpdate: (metrics: CVFrameMetrics) => void;
+  requestedFrameIdx?: number;
 }
 
 const SCALE_OPTIONS: { value: ScaleType; label: string }[] = [
@@ -100,6 +103,7 @@ export default function JukeboxStudio({
   soundEngine,
   latestMetrics,
   onMetricsUpdate,
+  requestedFrameIdx,
 }: JukeboxStudioProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const spectrumCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -113,11 +117,20 @@ export default function JukeboxStudio({
   const autoSeqRef = useRef<boolean>(true);
   const speedRef = useRef<number>(1);
   const lastFrameAdvanceRef = useRef<number>(0);
+  const outgoingSrcRef = useRef<string | null>(null);
+  const morphAlphaRef = useRef<number>(0);
+  const prevActiveSrcRef = useRef<string>(activeDataset.frames[0].localSrc);
+  const lastPointerActiveRef = useRef<number>(0);
+  const lastProbeAudioRef = useRef<number>(0);
+  const deltaCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [frameVariantIdx, setFrameVariantIdx] = useState<number>(0);
   const [orbitalDrift, setOrbitalDrift] = useState<boolean>(false);
   const [autoSequence, setAutoSequence] = useState<boolean>(true);
+  const [kinematicMotion, setKinematicMotion] = useState<boolean>(true);
+  const [deltaCompare, setDeltaCompare] = useState<boolean>(false);
+  const [deltaMetrics, setDeltaMetrics] = useState<DeltaMetrics | null>(null);
   const [sweepSpeed, setSweepSpeed] = useState<number>(1);
   const [imageReady, setImageReady] = useState<boolean>(false);
   const [svsMeta, setSvsMeta] = useState<SVSApiMetadata | null>(null);
@@ -125,6 +138,7 @@ export default function JukeboxStudio({
 
   const activeFrame =
     activeDataset.frames[frameVariantIdx] ?? activeDataset.frames[0];
+  const baselineFrame = activeDataset.frames[0];
 
   const filteredDatasets = useMemo(() => {
     if (categoryFilter === "all") return NASA_DATASETS;
@@ -145,16 +159,37 @@ export default function JukeboxStudio({
 
   // Reset frame index and flag metric extraction on dataset change
   useEffect(() => {
-    setFrameVariantIdx(0);
+    const initialIdx =
+      typeof requestedFrameIdx === "number" &&
+      requestedFrameIdx >= 0 &&
+      requestedFrameIdx < activeDataset.frames.length
+        ? requestedFrameIdx
+        : 0;
+    setFrameVariantIdx(initialIdx);
+    setDeltaCompare(false);
+    setDeltaMetrics(null);
+    outgoingSrcRef.current = null;
+    morphAlphaRef.current = 0;
+    prevActiveSrcRef.current = activeDataset.frames[initialIdx].localSrc;
     panOffsetRef.current = 0;
     scanPosRef.current = 0.5;
     dirtyMetricsRef.current = true;
-  }, [activeDataset.id]);
+  }, [activeDataset, requestedFrameIdx]);
 
-  // Flag metric extraction when frame, scan mode, or scale changes
+  // Trigger smooth crossfade morph whenever active frame switches within same dataset
+  useEffect(() => {
+    if (prevActiveSrcRef.current && prevActiveSrcRef.current !== activeFrame.localSrc) {
+      outgoingSrcRef.current = prevActiveSrcRef.current;
+      morphAlphaRef.current = 0.96;
+    }
+    prevActiveSrcRef.current = activeFrame.localSrc;
+    dirtyMetricsRef.current = true;
+  }, [activeFrame.localSrc]);
+
+  // Flag metric extraction when frame, scan mode, scale, or delta mode changes
   useEffect(() => {
     dirtyMetricsRef.current = true;
-  }, [activeFrame.id, scanMode, scale]);
+  }, [activeFrame.id, scanMode, scale, deltaCompare]);
 
   // Preload active dataset imagery
   useEffect(() => {
@@ -202,8 +237,63 @@ export default function JukeboxStudio({
     let rafId = 0;
     let tickCount = 0;
 
+    const computeABDelta = (
+      imgA: HTMLImageElement,
+      imgB: HTMLImageElement
+    ): DeltaMetrics | null => {
+      deltaCanvasRef.current ??= document.createElement("canvas");
+      const dCanvas = deltaCanvasRef.current;
+      dCanvas.width = 180;
+      dCanvas.height = 101;
+      const dctx = dCanvas.getContext("2d", { willReadFrequently: true });
+      if (!dctx) return null;
+
+      renderImageToCanvas(dctx, 180, 101, imgA, panOffsetRef.current, orbitalDrift);
+      const mA = analyzeCanvasFrame(
+        dctx,
+        180,
+        101,
+        scanPosRef.current,
+        scanMode,
+        probeRef.current,
+        activeDataset,
+        scale,
+        {
+          projection: baselineFrame.projection,
+          invertLuminance: baselineFrame.invertLuminance,
+        }
+      );
+
+      renderImageToCanvas(dctx, 180, 101, imgB, panOffsetRef.current, orbitalDrift);
+      const mB = analyzeCanvasFrame(
+        dctx,
+        180,
+        101,
+        scanPosRef.current,
+        scanMode,
+        probeRef.current,
+        activeDataset,
+        scale,
+        {
+          projection: activeFrame.projection,
+          invertLuminance: activeFrame.invertLuminance,
+        }
+      );
+
+      return {
+        baselineLabel: baselineFrame.label,
+        targetLabel: activeFrame.label,
+        luminanceDelta: mB.luminance - mA.luminance,
+        thermalDelta: mB.redMean - mA.redMean,
+        densityDelta: mB.pixelDensity - mA.pixelDensity,
+        baselineReading: mA.scientificReading,
+        targetReading: mB.scientificReading,
+      };
+    };
+
     const loop = () => {
       const canvas = canvasRef.current;
+      const nowMs = performance.now();
       if (canvas) {
         const ctx = canvas.getContext("2d", { willReadFrequently: true });
         if (ctx) {
@@ -213,9 +303,9 @@ export default function JukeboxStudio({
             const nextPos = scanPosRef.current + step;
             if (nextPos >= 1) {
               scanPosRef.current = nextPos % 1;
-              const nowMs = performance.now();
               if (
                 autoSeqRef.current &&
+                !deltaCompare &&
                 activeDataset.frames.length > 1 &&
                 nowMs - lastFrameAdvanceRef.current > 800
               ) {
@@ -233,15 +323,37 @@ export default function JukeboxStudio({
             }
           }
 
+          if (morphAlphaRef.current > 0) {
+            morphAlphaRef.current = Math.max(0, morphAlphaRef.current - 0.032);
+            if (morphAlphaRef.current === 0) outgoingSrcRef.current = null;
+          }
+
           const img = getCachedImage(activeFrame.localSrc);
-          renderImageToCanvas(
-            ctx,
-            canvas.width,
-            canvas.height,
-            img,
-            panOffsetRef.current,
-            orbitalDrift
-          );
+          const baselineImg = getCachedImage(baselineFrame.localSrc);
+          const outgoingImg = outgoingSrcRef.current
+            ? getCachedImage(outgoingSrcRef.current)
+            : null;
+
+          if (deltaCompare && baselineImg && img) {
+            renderCompositeFrameToCanvas(ctx, canvas.width, canvas.height, baselineImg, {
+              secondaryImg: img,
+              deltaCompare: true,
+              splitPosition: scanMode === "horizontal" ? scanPosRef.current : 0.5,
+              baselineLabel: baselineFrame.label,
+              targetLabel: activeFrame.label,
+              panOffsetNormalized: panOffsetRef.current,
+              subtleMotion: orbitalDrift,
+            });
+          } else {
+            renderCompositeFrameToCanvas(ctx, canvas.width, canvas.height, img, {
+              secondaryImg: kinematicMotion ? outgoingImg : null,
+              morphAlpha: kinematicMotion ? morphAlphaRef.current : 0,
+              svsId: activeDataset.svsId,
+              kinematicTime: kinematicMotion && isPlaying ? nowMs / 1000 : 0,
+              panOffsetNormalized: panOffsetRef.current,
+              subtleMotion: orbitalDrift,
+            });
+          }
 
           const shouldAnalyze =
             Boolean(img) &&
@@ -266,6 +378,7 @@ export default function JukeboxStudio({
             latestMetricsRef.current = metrics;
           }
 
+          const showProbeRecently = nowMs - lastPointerActiveRef.current < 2400;
           drawScanlineOverlay(
             ctx,
             canvas.width,
@@ -273,7 +386,11 @@ export default function JukeboxStudio({
             scanPosRef.current,
             scanMode,
             "#E5A93C",
-            probeRef.current
+            probeRef.current,
+            {
+              showProbeCallout: showProbeRecently,
+              probeLabel: `${metrics.activeNoteName} · ${metrics.spatialZoneLabel}`,
+            }
           );
 
           if (isPlaying && soundEngine && img) {
@@ -289,6 +406,10 @@ export default function JukeboxStudio({
           if (img && ((isPlaying && tickCount % 6 === 0) || dirtyMetricsRef.current)) {
             dirtyMetricsRef.current = false;
             onMetricsUpdate(metrics);
+            if (deltaCompare && baselineImg) {
+              const delta = computeABDelta(baselineImg, img);
+              if (delta) setDeltaMetrics(delta);
+            }
           }
         }
       }
@@ -358,9 +479,16 @@ export default function JukeboxStudio({
     activeDataset,
     activeFrame.id,
     activeFrame.invertLuminance,
+    activeFrame.label,
     activeFrame.localSrc,
     activeFrame.projection,
+    baselineFrame.invertLuminance,
+    baselineFrame.label,
+    baselineFrame.localSrc,
+    baselineFrame.projection,
+    deltaCompare,
     isPlaying,
+    kinematicMotion,
     orbitalDrift,
     scale,
     scanMode,
@@ -372,19 +500,30 @@ export default function JukeboxStudio({
     const rect = e.currentTarget.getBoundingClientRect();
     const nx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const ny = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    const nowMs = performance.now();
+
     probeRef.current = { x: nx, y: ny };
+    lastPointerActiveRef.current = nowMs;
     dirtyMetricsRef.current = true;
 
-    if (scanMode === "probe" && soundEngine) {
+    if (scanMode === "horizontal") {
+      scanPosRef.current = nx;
+    } else if (scanMode === "vertical") {
+      scanPosRef.current = ny;
+    } else if (scanMode === "radar") {
+      const angle = (Math.atan2(ny - 0.5, nx - 0.5) + Math.PI * 2) % (Math.PI * 2);
+      scanPosRef.current = angle / (Math.PI * 2);
+    }
+
+    if (soundEngine && (e.type === "pointerdown" || nowMs - lastProbeAudioRef.current > 95)) {
+      lastProbeAudioRef.current = nowMs;
       soundEngine.triggerTactileProbe(
         nx,
         ny,
         latestMetricsRef.current.luminance,
         scale,
-        0.75
+        0.72
       );
-    } else if (e.type === "pointerdown") {
-      scanPosRef.current = scanMode === "vertical" ? ny : nx;
     }
   };
 
@@ -591,20 +730,58 @@ export default function JukeboxStudio({
 
           <div className="flex flex-wrap items-center gap-1.5 font-mono text-[10px]">
             {activeDataset.frames.length > 1 && (
-              <button
-                type="button"
-                onClick={() => setAutoSequence((v) => !v)}
-                aria-pressed={autoSequence}
-                aria-label="Toggle automatic multi-frame time-series sequencing"
-                className={`rounded-[2px] border px-2 py-1 uppercase transition-colors ${
-                  autoSequence
-                    ? "border-[var(--sig-emerald)] bg-[#10261b] text-[var(--sig-emerald)]"
-                    : "border-[var(--hairline)] bg-[var(--switch-cap)] text-[var(--text-steel)]"
-                }`}
-              >
-                AUTO-SEQ: {autoSequence ? "ON" : "OFF"}
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeltaCompare((prev) => {
+                      const next = !prev;
+                      if (next && frameVariantIdx === 0) {
+                        setFrameVariantIdx(1);
+                      }
+                      return next;
+                    });
+                  }}
+                  aria-pressed={deltaCompare}
+                  aria-label="Toggle split-screen scientific A versus B baseline comparison"
+                  className={`rounded-[2px] border px-2 py-1 uppercase transition-colors ${
+                    deltaCompare
+                      ? "border-[var(--sig-amber)] bg-[#2b1f09] font-bold text-[var(--sig-amber)]"
+                      : "border-[var(--hairline)] bg-[var(--switch-cap)] text-[var(--text-steel)] hover:text-[var(--text-ivory)]"
+                  }`}
+                >
+                  DELTA A/B: {deltaCompare ? "ON" : "OFF"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setAutoSequence((v) => !v)}
+                  aria-pressed={autoSequence}
+                  aria-label="Toggle automatic multi-frame time-series sequencing"
+                  className={`rounded-[2px] border px-2 py-1 uppercase transition-colors ${
+                    autoSequence
+                      ? "border-[var(--sig-emerald)] bg-[#10261b] text-[var(--sig-emerald)]"
+                      : "border-[var(--hairline)] bg-[var(--switch-cap)] text-[var(--text-steel)]"
+                  }`}
+                >
+                  AUTO-SEQ: {autoSequence ? "ON" : "OFF"}
+                </button>
+              </>
             )}
+
+            <button
+              type="button"
+              onClick={() => setKinematicMotion((v) => !v)}
+              aria-pressed={kinematicMotion}
+              aria-label="Toggle temporal morphing and optical phenomenon kinematics"
+              className={`rounded-[2px] border px-2 py-1 uppercase transition-colors ${
+                kinematicMotion
+                  ? "border-[var(--sig-ice)] bg-[#101c31] text-[var(--sig-ice)]"
+                  : "border-[var(--hairline)] bg-[var(--switch-cap)] text-[var(--text-steel)]"
+              }`}
+            >
+              KINEMATICS: {kinematicMotion ? "ON" : "OFF"}
+            </button>
 
             <button
               type="button"
@@ -663,7 +840,7 @@ export default function JukeboxStudio({
                 </span>
               </div>
               <div className="text-[var(--sig-ice)]">
-                PROJ: {projTag}
+                PROJ: {projTag} · CLICK/DRAG TO SCRUB
               </div>
             </div>
 
@@ -679,7 +856,7 @@ export default function JukeboxStudio({
                     handleCanvasPointer(e);
                   }
                 }}
-                aria-label={`Interactive optical analysis viewport for ${activeDataset.title} — ${activeFrame.label}. Click or drag to position scanline or sonic probe.`}
+                aria-label={`Interactive optical analysis viewport for ${activeDataset.title} — ${activeFrame.label}. Click or drag anywhere to scrub scanline and audition coordinates.`}
                 className="aspect-video w-full cursor-crosshair touch-none"
               />
 
@@ -703,6 +880,41 @@ export default function JukeboxStudio({
               </span>
             </div>
           </div>
+
+          {deltaCompare && deltaMetrics && (
+            <div
+              role="region"
+              aria-label="Scientific Delta A/B Comparison Telemetry"
+              className="mt-2.5 border border-[var(--sig-amber)] bg-[var(--display-well)] p-2.5 font-mono text-[11px]"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--hairline)] pb-1.5 text-[10px]">
+                <span className="font-bold uppercase tracking-[0.1em] text-[var(--sig-amber)]">
+                  SCIENTIFIC DELTA ANALYSIS (A vs B AT SCANLINE)
+                </span>
+                <span className="text-[var(--text-steel)]">
+                  A: {deltaMetrics.baselineLabel} ↔ B: {deltaMetrics.targetLabel}
+                </span>
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                <DeltaBadge
+                  label="Δ OPTICAL SIGNAL"
+                  delta={deltaMetrics.luminanceDelta}
+                />
+                <DeltaBadge
+                  label="Δ THERMAL / RED"
+                  delta={deltaMetrics.thermalDelta}
+                />
+                <DeltaBadge
+                  label="Δ PLUME DENSITY"
+                  delta={deltaMetrics.densityDelta}
+                />
+              </div>
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-[var(--text-steel)]">
+                <span>A: {deltaMetrics.baselineReading}</span>
+                <span className="text-[var(--sig-emerald)]">B: {deltaMetrics.targetReading}</span>
+              </div>
+            </div>
+          )}
 
           <p className="mt-2 font-mono text-[11px] text-[var(--text-steel)]">
             FRAME NOTE: {activeFrame.caption}
@@ -1038,6 +1250,28 @@ export default function JukeboxStudio({
           </div>
         </div>
       </aside>
+    </div>
+  );
+}
+
+function DeltaBadge({ label, delta }: { label: string; delta: number }) {
+  const pct = Math.round(delta * 100);
+  const sign = pct > 0 ? "+" : "";
+  const color =
+    pct > 4
+      ? "text-[var(--sig-amber)]"
+      : pct < -4
+        ? "text-[var(--sig-ice)]"
+        : "text-[var(--sig-emerald)]";
+  return (
+    <div className="border border-[var(--hairline)] bg-[#07090d] p-2">
+      <div className="text-[9px] uppercase tracking-[0.08em] text-[var(--text-engraved)]">
+        {label}
+      </div>
+      <div className={`mt-0.5 text-sm font-bold ${color}`}>
+        {sign}
+        {pct}%
+      </div>
     </div>
   );
 }

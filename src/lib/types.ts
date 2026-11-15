@@ -104,3 +104,26 @@ export type CustomMediaSourceMode =
   | "archive-frame"
   | "local-upload"
   | "remote-svs-url";
+
+export interface DeltaMetrics {
+  baselineLabel: string;
+  targetLabel: string;
+  luminanceDelta: number; // target - baseline (-1..1)
+  thermalDelta: number; // target redMean - baseline redMean (-1..1)
+  densityDelta: number; // target pixelDensity - baseline pixelDensity (-1..1)
+  baselineReading: string;
+  targetReading: string;
+}
+
+export interface StoryChapter {
+  id: string;
+  chapterNumber: number;
+  title: string;
+  datasetId: string;
+  frameIndex: number;
+  scanMode: ScanMode;
+  scale: ScaleType;
+  durationSec: number;
+  scientificInsight: string;
+  acousticCue: string;
+}

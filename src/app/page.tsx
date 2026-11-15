@@ -6,6 +6,7 @@ import JukeboxStudio from "@/components/JukeboxStudio";
 import TactileExplorer from "@/components/TactileExplorer";
 import {
   speakTelemetry,
+  speakText,
   speakTrackIntro,
   stopSpeaking,
 } from "@/lib/accessibility-narrator";
@@ -17,6 +18,7 @@ import type {
   ScaleType,
   ScanMode,
   StemsMap,
+  StoryChapter,
 } from "@/lib/types";
 
 type ActiveTab = "jukebox" | "tactile" | "custom";
@@ -57,6 +59,65 @@ const SCALE_ORDER: ScaleType[] = [
 
 const SCAN_ORDER: ScanMode[] = ["horizontal", "vertical", "radar", "probe"];
 
+const EARTH_STORY_CHAPTERS: StoryChapter[] = [
+  {
+    id: "ch-1-night-lights",
+    chapterNumber: 1,
+    title: "THE ANTHROPOCENE GRID // NIGHT LIGHTS (SVS-5313)",
+    datasetId: "night-lights",
+    frameIndex: 0,
+    scanMode: "horizontal",
+    scale: "pentatonic",
+    durationSec: 15,
+    scientificInsight:
+      "Decadal VIIRS nocturnal radiance reveals dense urbanization corridors across coastlines, rivers, and megacities while unlit oceans preserve serene silence.",
+    acousticCue:
+      "ACOUSTIC CUE: Bright urban pentatonic bells accelerate over continental cities, panning West-to-East in stereo.",
+  },
+  {
+    id: "ch-2-air-quality",
+    chapterNumber: 2,
+    title: "TROPOSPHERIC CHEMISTRY // AIR QUALITY (SVS-5533)",
+    datasetId: "air-quality",
+    frameIndex: 1,
+    scanMode: "horizontal",
+    scale: "harmonicMinor",
+    durationSec: 15,
+    scientificInsight:
+      "Four atmospheric chemistry strips compare Carbon Monoxide (CO), PM2.5 particulates, Nitrogen Oxides (NOx), and Ozone (O₃) using calibrated optical absorption.",
+    acousticCue:
+      "ACOUSTIC CUE: Urgent Harmonic Minor tension and Geiger-counter particulate ticks swell over dense pollutant bands.",
+  },
+  {
+    id: "ch-3-perpetual-ocean",
+    chapterNumber: 3,
+    title: "OCEANIC HEAT ENGINE // PERPETUAL OCEAN 2 (SVS-5425)",
+    datasetId: "perpetual-ocean",
+    frameIndex: 0,
+    scanMode: "horizontal",
+    scale: "lydian",
+    durationSec: 15,
+    scientificInsight:
+      "ECCO boundary current streamlines track fast western ocean jets like the Kuroshio and Gulf Stream redistributing tropical thermal energy.",
+    acousticCue:
+      "ACOUSTIC CUE: Kinetic Lydian harp arpeggios and spatial hydrophone wave swells rise along turbulent current eddies.",
+  },
+  {
+    id: "ch-4-iss-lightning",
+    chapterNumber: 4,
+    title: "ORBITAL LIGHTNING TELEMETRY // ISS LIS (SVS-5011)",
+    datasetId: "iss-lightning",
+    frameIndex: 1,
+    scanMode: "radar",
+    scale: "pentatonic",
+    durationSec: 15,
+    scientificInsight:
+      "Seven years of International Space Station optical sensor detections illuminate intense equatorial thunderstorm belts across Africa, Amazonia, and Maritime Asia.",
+    acousticCue:
+      "ACOUSTIC CUE: Electric arc crackle, sub-thunder drops, and high-voltage ionosphere chimes trigger on orbital flash peaks.",
+  },
+];
+
 export default function HomePage() {
   const engineRef = useRef<EarthSoundEngine | null>(null);
   const [soundEngine, setSoundEngine] = useState<EarthSoundEngine | null>(null);
@@ -64,6 +125,9 @@ export default function HomePage() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("jukebox");
   const [activeDataset, setActiveDataset] = useState<NASADataset>(
     NASA_DATASETS[0]
+  );
+  const [requestedFrameIdx, setRequestedFrameIdx] = useState<number | undefined>(
+    undefined
   );
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [scale, setScale] = useState<ScaleType>(NASA_DATASETS[0].defaultScale);
@@ -73,6 +137,9 @@ export default function HomePage() {
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [highContrast, setHighContrast] = useState<boolean>(false);
   const [showShortcuts, setShowShortcuts] = useState<boolean>(false);
+  const [tourActive, setTourActive] = useState<boolean>(false);
+  const [tourChapterIdx, setTourChapterIdx] = useState<number>(0);
+  const [tourRemainingSec, setTourRemainingSec] = useState<number>(15);
   const [latestMetrics, setLatestMetrics] =
     useState<CVFrameMetrics>(INITIAL_METRICS);
   const [toastMessage, setToastMessage] = useState<string>("");
@@ -99,8 +166,84 @@ export default function HomePage() {
     setTimeout(() => setToastMessage(""), 3600);
   }, []);
 
+  const activateTourChapter = useCallback(
+    (idx: number) => {
+      const chapter = EARTH_STORY_CHAPTERS[idx];
+      if (!chapter) return;
+      const ds = NASA_DATASETS.find((d) => d.id === chapter.datasetId);
+      if (!ds) return;
+
+      setActiveTab("jukebox");
+      setActiveDataset(ds);
+      setRequestedFrameIdx(chapter.frameIndex);
+      setScanMode(chapter.scanMode);
+      setScale(chapter.scale);
+      setTourChapterIdx(idx);
+      setTourRemainingSec(chapter.durationSec);
+
+      const eng = engineRef.current;
+      if (eng) {
+        eng.startPlayback();
+        eng.applyStemMix(stems);
+        eng.setMasterVolume(masterVolume);
+        setIsPlaying(true);
+      }
+
+      speakText(
+        `Chapter ${chapter.chapterNumber} of ${EARTH_STORY_CHAPTERS.length}: ${ds.shortTitle}. ${chapter.scientificInsight}`,
+        1.05
+      );
+      showNotice(`STORY TOUR // CH-0${chapter.chapterNumber}: ${ds.shortTitle.toUpperCase()}`);
+    },
+    [masterVolume, showNotice, stems]
+  );
+
+  const stopStoryTour = useCallback(
+    (bannerNotice = "GUIDED STORY TOUR DISENGAGED") => {
+      setTourActive(false);
+      setRequestedFrameIdx(undefined);
+      stopSpeaking();
+      showNotice(bannerNotice);
+    },
+    [showNotice]
+  );
+
+  const startStoryTour = useCallback(() => {
+    setTourActive(true);
+    activateTourChapter(0);
+  }, [activateTourChapter]);
+
+  useEffect(() => {
+    if (!tourActive) return;
+    const timer = window.setInterval(() => {
+      setTourRemainingSec((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [tourActive]);
+
+  useEffect(() => {
+    if (!tourActive || tourRemainingSec > 0) return;
+    const nextIdx = tourChapterIdx + 1;
+    if (nextIdx < EARTH_STORY_CHAPTERS.length) {
+      activateTourChapter(nextIdx);
+    } else {
+      stopStoryTour("4-CHAPTER EARTH STORY TOUR COMPLETE // CONSOLE READY");
+      speakText(
+        "Earth Story Tour complete. Click anywhere on any NASA dataset or switch tabs to continue exploring.",
+        1.05
+      );
+    }
+  }, [
+    tourActive,
+    tourRemainingSec,
+    tourChapterIdx,
+    activateTourChapter,
+    stopStoryTour,
+  ]);
+
   const handleSelectDataset = useCallback(
     (ds: NASADataset) => {
+      setRequestedFrameIdx(undefined);
       setActiveDataset(ds);
       setScale(ds.defaultScale);
       if (isPlaying) {
@@ -216,6 +359,12 @@ export default function HomePage() {
         setHighContrast((prev) => !prev);
       } else if (e.key.toLowerCase() === "r") {
         handleToggleRecord();
+      } else if (e.key.toLowerCase() === "t") {
+        if (tourActive) {
+          stopStoryTour();
+        } else {
+          startStoryTour();
+        }
       } else if (e.key === "Escape") {
         stopSpeaking();
         setShowShortcuts(false);
@@ -232,6 +381,9 @@ export default function HomePage() {
     handleToggleRecord,
     latestMetrics,
     showNotice,
+    startStoryTour,
+    stopStoryTour,
+    tourActive,
   ]);
 
   return (
@@ -310,7 +462,25 @@ export default function HomePage() {
           </nav>
 
           {/* Hardware Utility Micro-Switches */}
-          <div className="flex items-center gap-1.5 font-mono text-[11px]">
+          <div className="flex flex-wrap items-center gap-1.5 font-mono text-[11px]">
+            <button
+              type="button"
+              onClick={() => (tourActive ? stopStoryTour() : startStoryTour())}
+              aria-pressed={tourActive}
+              aria-label={
+                tourActive
+                  ? "Stop Guided 4-Chapter Earth Story Tour (Hotkey T)"
+                  : "Launch Guided 4-Chapter Earth Story Tour (Hotkey T)"
+              }
+              className={`rounded-[2px] border px-2.5 py-1.5 font-bold uppercase tracking-[0.1em] transition-colors ${
+                tourActive
+                  ? "border-[var(--sig-amber)] bg-[var(--sig-amber)] text-[#07080B]"
+                  : "border-[var(--sig-emerald)] bg-[#10261b] text-[var(--sig-emerald)] hover:bg-[var(--sig-emerald)] hover:text-[#07080B]"
+              }`}
+            >
+              {tourActive ? "■ STOP TOUR [T]" : "▶ STORY TOUR [T]"}
+            </button>
+
             <button
               type="button"
               onClick={() => setHighContrast((v) => !v)}
@@ -358,6 +528,80 @@ export default function HomePage() {
 
       {/* Main Unified Console Chassis */}
       <main id="main-workspace" className="mx-auto max-w-[1580px]">
+        {tourActive && (() => {
+          const ch = EARTH_STORY_CHAPTERS[tourChapterIdx];
+          if (!ch) return null;
+          const pct = Math.round(((ch.durationSec - tourRemainingSec) / ch.durationSec) * 100);
+          return (
+            <section
+              aria-label="Guided Earth Story Tour Controller"
+              className="border-x border-b border-[var(--sig-emerald)] bg-[#0b1310] p-3.5"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
+                  <span className="bg-[var(--sig-emerald)] px-2 py-0.5 font-bold text-[#07080B]">
+                    GUIDED TOUR // CH 0{ch.chapterNumber} OF 0{EARTH_STORY_CHAPTERS.length}
+                  </span>
+                  <span className="font-bold text-[var(--text-ivory)]">
+                    {ch.title}
+                  </span>
+                  <span className="border border-[var(--hairline-strong)] bg-[var(--display-well)] px-2 py-0.5 text-[var(--sig-amber)]">
+                    NEXT IN {String(tourRemainingSec).padStart(2, "0")}s
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5 font-mono text-[10px]">
+                  <button
+                    type="button"
+                    disabled={tourChapterIdx === 0}
+                    onClick={() => activateTourChapter(tourChapterIdx - 1)}
+                    className="rounded-[2px] border border-[var(--hairline-strong)] bg-[var(--switch-cap)] px-2.5 py-1 uppercase text-[var(--text-ivory)] disabled:opacity-40"
+                  >
+                    ◀ PREV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextIdx = tourChapterIdx + 1;
+                      if (nextIdx < EARTH_STORY_CHAPTERS.length) {
+                        activateTourChapter(nextIdx);
+                      } else {
+                        stopStoryTour();
+                      }
+                    }}
+                    className="rounded-[2px] border border-[var(--hairline-strong)] bg-[var(--switch-cap)] px-2.5 py-1 uppercase text-[var(--sig-emerald)] hover:border-[var(--sig-emerald)]"
+                  >
+                    {tourChapterIdx + 1 < EARTH_STORY_CHAPTERS.length ? "NEXT CHAPTER ▶" : "FINISH TOUR"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => stopStoryTour()}
+                    className="rounded-[2px] border border-[var(--sig-vermilion)] bg-[#241013] px-2.5 py-1 uppercase text-[var(--sig-vermilion)]"
+                  >
+                    EXIT TOUR
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-12">
+                <p className="text-xs leading-relaxed text-[var(--text-ivory)] lg:col-span-7">
+                  {ch.scientificInsight}
+                </p>
+                <p className="border-l-2 border-l-[var(--sig-amber)] bg-[var(--display-well)] px-2.5 py-1.5 font-mono text-[11px] text-[var(--sig-amber)] lg:col-span-5">
+                  {ch.acousticCue}
+                </p>
+              </div>
+
+              <div className="mt-2.5 h-1.5 w-full bg-[var(--display-well)]">
+                <div
+                  className="h-full bg-[var(--sig-emerald)] transition-all duration-500"
+                  style={{ width: `${Math.min(100, Math.max(4, pct))}%` }}
+                />
+              </div>
+            </section>
+          );
+        })()}
+
         {activeTab === "jukebox" && (
           <JukeboxStudio
             activeDataset={activeDataset}
@@ -378,6 +622,7 @@ export default function HomePage() {
             soundEngine={soundEngine}
             latestMetrics={latestMetrics}
             onMetricsUpdate={setLatestMetrics}
+            requestedFrameIdx={requestedFrameIdx}
           />
         )}
 
@@ -436,6 +681,7 @@ export default function HomePage() {
             </div>
             <ul className="space-y-2 font-mono text-xs text-[var(--text-ivory)]">
               <ShortcutRow action="Engage / Hold Sonification" keys="SPACE" />
+              <ShortcutRow action="Start / Stop 4-Chapter Story Tour" keys="T" />
               <ShortcutRow action="Select NASA SVS Track 1–9" keys="1 – 9" />
               <ShortcutRow action="Load Caldwell 73 Reference" keys="0" />
               <ShortcutRow action="Speak Live Optical Telemetry" keys="N" />
