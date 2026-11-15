@@ -128,7 +128,7 @@ export default function JukeboxStudio({
   const [frameVariantIdx, setFrameVariantIdx] = useState<number>(0);
   const [orbitalDrift, setOrbitalDrift] = useState<boolean>(false);
   const [autoSequence, setAutoSequence] = useState<boolean>(true);
-  const [kinematicMotion, setKinematicMotion] = useState<boolean>(true);
+  const [kinematicMotion, setKinematicMotion] = useState<boolean>(false);
   const [deltaCompare, setDeltaCompare] = useState<boolean>(false);
   const [deltaMetrics, setDeltaMetrics] = useState<DeltaMetrics | null>(null);
   const [sweepSpeed, setSweepSpeed] = useState<number>(1);

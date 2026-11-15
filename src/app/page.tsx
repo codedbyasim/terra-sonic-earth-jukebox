@@ -37,7 +37,7 @@ const INITIAL_METRICS: CVFrameMetrics = {
   columnProfile: Array(32).fill(0.25),
   activeNoteName: "G4",
   activeChordName: "Cmaj7",
-  scientificReading: "Optical Radiance Index: 25.0% · Peak Density 34%",
+  scientificReading: "Radiance Intensity: 25.0% · Active Pixels 34% (Color-Derived)",
   projection: "equirectangular",
   spatialZoneLabel: "Central Meridian · 0°N, 0°E",
 };

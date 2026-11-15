@@ -54,38 +54,38 @@ function formatScientificReading(
 ): string {
   switch (dataset.id) {
     case "night-lights":
-      return `Optical Radiance Index: ${(signal * 100).toFixed(1)}% · Peak Density ${Math.round(density * 100)}%`;
+      return `Radiance Intensity: ${(signal * 100).toFixed(1)}% · Active Pixels ${Math.round(density * 100)}% (Color-Derived)`;
     case "sea-currents-temp": {
       const thermalBias = Math.max(0, Math.min(1, redMean - blueMean * 0.55 + 0.32));
-      return `Thermal Proxy: ${(-1.8 + thermalBias * 32.5).toFixed(1)} °C · Flow Energy ${Math.round(signal * 100)}%`;
+      return `~${(-1.8 + thermalBias * 32.5).toFixed(1)} °C (Approx. from Pixel Color) · Flow ${Math.round(signal * 100)}%`;
     }
     case "geos-aerosols":
-      return `Aerosol Optical Index: ${(0.05 + density * 1.35).toFixed(2)} AOD`;
+      return `~${(0.05 + density * 1.35).toFixed(2)} AOD (Approx. from Pixel Color)`;
     case "air-quality":
       if (projection === "multi-strip-pollutants") {
         const speciesTag = spatialZoneLabel.split(" · ")[0];
-        return `${speciesTag} · Absorption Index ${Math.round(signal * 100)}%`;
+        return `${speciesTag} · Plume Intensity ${Math.round(signal * 100)}% (Color-Derived)`;
       }
-      return `Tropospheric Plume Index: ${Math.round(15 + density * 185)} µg/m³`;
+      return `~${Math.round(15 + density * 185)} µg/m³ (Approx. from Pixel Color)`;
     case "perpetual-ocean":
-      return `Boundary Current Energy: ${(0.18 + signal * 2.1).toFixed(2)} m/s`;
+      return `~${(0.18 + signal * 2.1).toFixed(2)} m/s (Approx. from Pixel Color)`;
     case "dyamond-co2": {
       const plumeStrength = Math.max(0, Math.min(1, redMean * 1.15 - blueMean * 0.25));
-      return `CO₂ Optical Plume: ${Math.round(402 + plumeStrength * 46)} ppm`;
+      return `~${Math.round(402 + plumeStrength * 46)} ppm (Approx. from Pixel Color)`;
     }
     case "iss-lightning":
-      return `Flash Optical Peaks: ${Math.round(spike * 48)} events/sweep`;
+      return `Flash Pixel Peaks: ${Math.round(spike * 48)} hotspots (Color-Derived)`;
     case "atmospheric-river":
-      return `Vapor Plume Optical Index: ${Math.round(180 + (blueMean * 0.5 + density * 0.5) * 780)} kg/m/s`;
+      return `~${Math.round(180 + (blueMean * 0.5 + density * 0.5) * 780)} kg/m/s (Approx. from Pixel Color)`;
     case "gedi-forest": {
       // Dark olive (0m) -> bright forest green / ivory canopy (50m); distinguish vegetation green from ocean blue
       const isVegetated = greenMean > blueMean * 0.92;
       const canopyIndex = isVegetated ? Math.min(1, greenMean * 1.25 + redMean * 0.25) : 0.04;
-      return `Canopy Elevation Proxy: ${(canopyIndex * 50).toFixed(1)} m`;
+      return `~${(canopyIndex * 50).toFixed(1)} m Canopy (Approx. from Pixel Color)`;
     }
     case "caldwell-73":
     default:
-      return `Optical Luminosity: ${(signal * 100).toFixed(1)}%`;
+      return `Pixel Luminosity: ${(signal * 100).toFixed(1)}% (Color-Derived)`;
   }
 }
 
